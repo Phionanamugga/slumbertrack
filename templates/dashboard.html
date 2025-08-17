@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Summary (last 30 logs)</h5>
+        <p class="mb-1">Average duration: <strong>{{ stats.avg_hours }} h</strong></p>
+        <p class="mb-1">Average quality: <strong>{{ stats.avg_quality }}/5</strong></p>
+        {% if goal_hours %}
+          <p>Goal: <span class="badge text-bg-primary">{{ goal_hours }} h</span></p>
+        {% else %}
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'goal_view' %}">Set sleep goal</a>
+        {% endif %}
+        <a class="btn btn-sm btn-success mt-2" href="{% url 'session_create' %}">Log Sleep</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Sleep Duration</h5>
+        <canvas id="durationChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Sleep Quality</h5>
+        <canvas id="qualityChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const labels = {{ chart_labels|safe }};
+const hours = {{ chart_hours|safe }};
+const quality = {{ chart_quality|safe }};
+const goal = {{ goal_hours|default:"null" }};
+
+const ctx1 = document.getElementById('durationChart');
+new Chart(ctx1, {
+  type: 'line',
+  data: {
+    labels: labels,
+    datasets: [
+      { label: 'Hours Slept', data: hours, tension: 0.3 },
+      ...(goal ? [{{'{'}} type: 'line', label: 'Goal', data: Array(hours.length).fill(goal), borderDash: [5,5] {{'}'}}] : [])
+    ]
+  }
+});
+
+const ctx2 = document.getElementById('qualityChart');
+new Chart(ctx2, {
+  type: 'bar',
+  data: { labels: labels, datasets: [{ label: 'Quality (1-5)', data: quality }] },
+  options: { scales: { y: { min: 0, max: 5, ticks: { stepSize: 1 }}}}
+});
+</script>
+{% endblock %}
