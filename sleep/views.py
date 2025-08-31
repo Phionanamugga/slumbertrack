@@ -1,19 +1,81 @@
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth import login
+from django.contrib.auth import authenticate, login as auth_login
 from django.shortcuts import render, redirect, get_object_or_404
-from django.db.models import Avg, Count
+from django.db.models import Avg
 from django.http import HttpResponse
 import csv, io, datetime, json
-
+from django.contrib.auth.forms import AuthenticationForm 
 from .models import SleepSession, SleepGoal
-from .forms import SleepSessionForm, SleepGoalForm, SignUpForm
+from .forms import SleepSessionForm, SleepGoalForm
+from django.contrib.auth.views import LoginView
+from django.urls import reverse_lazy
+
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+import logging
+
+logger = logging.getLogger(__name__)
+
+class CustomLoginView(LoginView):
+    template_name = 'login.html'
+    success_url = reverse_lazy('sleep:session_list')
+
+    def form_valid(self, form):
+        logger.info(f"Login successful for user: {form.get_user().username}")
+        return super().form_valid(form)
+
+    def form_invalid(self, form):
+        logger.error(f"Login failed: {form.errors}")
+        return super().form_invalid(form)
+
+@login_required
+def session_list(request):
+    logger.info(f"Rendering session_list for user: {request.user.username}")
+    return render(request, 'base.html', {'sessions': []})
+
+# Other placeholder views...
+@login_required
+def goal_view(request):
+    return render(request, 'base.html', {'goal': None})
+
+@login_required
+def import_csv(request):
+    return render(request, 'base.html', {})
+
+@login_required
+def export_csv(request):
+    return render(request, 'base.html', {})
+
+def signup_view(request):
+    return render(request, 'signup.html', {})
+
+def get_success_url(self):
+    if self.request.user.is_authenticated:
+        return reverse_lazy('sleep:session_list')
+    return reverse_lazy('sleep:login')
+    
+def login_view(request):
+    if request.method == "POST":
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            username = form.cleaned_data.get('username')
+            password = form.cleaned_data.get('password')
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                auth_login(request, user)
+                return render(request, "base.html")
+            else:
+                form.add_error(None, "Invalid username or password.")
+    else:
+        form = AuthenticationForm()
+    return render(request, "login.html", {"form": form})
 
 def signup(request):
     if request.method == "POST":
         form = SignUpForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)
+            auth_login(request, user)
             return redirect("dashboard")
     else:
         form = SignUpForm()
@@ -37,13 +99,10 @@ def dashboard(request):
     except SleepGoal.DoesNotExist:
         pass
 
-    stats = {
-        "avg_hours": sessions.aggregate(x=Avg("end") ).get("x")  # dummy init to avoid empty aggregate error
-    }
-    # Better compute avg hours manually
+    stats = {}
     if sessions:
-        stats["avg_hours"] = round(sum(s.duration_hours for s in sessions)/len(sessions), 2)
-        stats["avg_quality"] = round(sum(s.quality for s in sessions)/len(sessions), 2)
+        stats["avg_hours"] = round(sum(s.duration_hours for s in sessions) / len(sessions), 2)
+        stats["avg_quality"] = round(sum(s.quality for s in sessions) / len(sessions), 2)
     else:
         stats["avg_hours"] = 0
         stats["avg_quality"] = 0
@@ -107,17 +166,19 @@ def import_csv(request):
     msg = None
     if request.method == "POST" and request.FILES.get("file"):
         f = request.FILES["file"].read().decode("utf-8")
-        reader = csv.DictReader(io.StringIO(f))
-        count = 0
-        for row in reader:
-            start = row.get("start")
-            end = row.get("end")
-            quality = int(row.get("quality", 3) or 3)
-            latency = int(row.get("latency_minutes", 0) or 0)
-            awakenings = int(row.get("awakenings", 0) or 0)
-            tags = row.get("tags", "")
-            notes = row.get("notes", "")
-            if start and end:
+        try:
+            reader = csv.DictReader(io.StringIO(f))
+            count = 0
+            for row in reader:
+                start = row.get("start")
+                end = row.get("end")
+                if not (start and end):
+                    continue  # Skip rows missing start or end
+                quality = int(row.get("quality", 3) or 3)
+                latency = int(row.get("latency_minutes", 0) or 0)
+                awakenings = int(row.get("awakenings", 0) or 0)
+                tags = row.get("tags", "")
+                notes = row.get("notes", "")
                 SleepSession.objects.create(
                     user=request.user,
                     start=start,
@@ -129,7 +190,9 @@ def import_csv(request):
                     notes=notes,
                 )
                 count += 1
-        msg = f"Imported {count} sessions."
+            msg = f"Imported {count} sessions."
+        except Exception as e:
+            msg = f"Error importing CSV: {str(e)}"
     return render(request, "import.html", {"message": msg})
 
 @login_required
@@ -138,7 +201,9 @@ def export_csv(request):
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = 'attachment; filename="sleep_sessions.csv"'
     writer = csv.writer(response)
-    writer.writerow(["start","end","quality","latency_minutes","awakenings","tags","notes","duration_hours"])
+    writer.writerow(["start", "end", "quality", "latency_minutes", "awakenings", "tags", "notes", "duration_hours"])
     for s in sessions:
         writer.writerow([s.start.isoformat(), s.end.isoformat(), s.quality, s.latency_minutes, s.awakenings, s.tags, s.notes, s.duration_hours])
     return response
+
+

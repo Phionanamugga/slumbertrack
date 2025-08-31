@@ -3,6 +3,8 @@ from django.urls import path, include
 from django.views.generic import RedirectView
 from sleep import views as sleep_views
 
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("sleep.api_urls")),
@@ -15,4 +17,8 @@ urlpatterns = [
     path("goals/", sleep_views.goal_view, name="goal_view"),
     path("import/", sleep_views.import_csv, name="import_csv"),
     path("export/", sleep_views.export_csv, name="export_csv"),
+    path('', include('sleep.urls')), 
+   
+   
 ]
+
